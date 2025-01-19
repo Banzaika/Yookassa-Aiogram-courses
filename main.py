@@ -10,6 +10,8 @@ from aiogram.dispatcher.router import Router
 from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from settings import config
 from functools import wraps
+
+
 # Логирование
 LOG_FILE = 'course_bot.log'
 if not os.path.exists(LOG_FILE):
@@ -41,7 +43,10 @@ TARIFFS = {
         "channel_id": -1002391181980,
     },
 }
-ids_list = [(details["chat_id"], details["channel_id"]) for details in TARIFFS.values()]
+values_list = list(TARIFFS.values())
+
+# If you want a flat list of all values
+ids_list = [value for subdict in values_list for value in subdict.values()]
 
 # Функция для создания платежа
 def create_payment(price: int, description: str):
@@ -94,6 +99,8 @@ async def handle_successful_payment(payment, message: Message, tariff):
 def ignore_chats(func):
     @wraps(func)
     async def wrapper(message: Message):
+        print(f'{ids_list=}')
+        print(f'{message=}')
         if message.chat.id in ids_list:
             return  # Пропустить обработку сообщения
         return await func(message)

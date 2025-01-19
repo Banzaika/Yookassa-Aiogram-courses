@@ -128,8 +128,6 @@ async def handle_successful_payment(payment, message, tariff):
 @dp.message_handler(commands=['start'])
 @ignore_chats
 async def handle_start(message: types.Message):
-    bot_message = f"Привет, {message.from_user.first_name}.\nБлагодарю за оказанное доверие. Я надеюсь вы получите от марафона максимум пользы и радости." + '<a href="{payment_link}">Ваша ссылка для оплаты курса - {price} руб.</a>'
-    
     tariff = TARIFFS.get('Марафон по мыловарению')
     username = message.from_user.username
     name = f"{message.from_user.first_name} {message.from_user.last_name}"
@@ -142,7 +140,10 @@ async def handle_start(message: types.Message):
     payment_id = payment_data['id']
     payment_link = payment_data['confirmation']['confirmation_url']
 
-    await bot.send_message(message.chat.id, message, reply_markup=keyboard_for_client, parse_mode=types.ParseMode.HTML)
+    bot_message = f"Привет, {message.from_user.first_name}.\nБлагодарю за оказанное доверие. Я надеюсь вы получите от марафона максимум пользы и радости." \
+                  f'<a href="{payment_link}">Ваша ссылка для оплаты курса - {price} руб.</a>'
+
+    await bot.send_message(message.chat.id, bot_message, reply_markup=keyboard_for_client, parse_mode=types.ParseMode.HTML)
     await monitor_payment(payment_id, message, tariff)
 
 @dp.message_handler()

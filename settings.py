@@ -3,7 +3,7 @@ from pathlib import Path
 from pydantic_settings import BaseSettings
 
 # Получаем путь к файлу .env, который находится в директории выше
-ENV_PATH = Path(__file__).parent.parent / ".env"
+ENV_PATH = ".env"
 
 
 class Config(BaseSettings):

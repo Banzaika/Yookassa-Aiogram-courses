@@ -3,86 +3,47 @@ import logging
 import asyncio
 import os
 from yookassa import Configuration, Payment
-from aiogram import Bot, Dispatcher, types, executor
+from aiogram import Bot, Dispatcher, types
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, Message
+from aiogram.filters import Command
+from aiogram.dispatcher.router import Router
+from aiogram.utils.keyboard import ReplyKeyboardBuilder
 from settings import config
 from functools import wraps
-
+# Логирование
 LOG_FILE = 'course_bot.log'
 if not os.path.exists(LOG_FILE):
     open(LOG_FILE, 'x').close()
 
-# Создаем логгер
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
+)
 
-# Создаем обработчик для записи в файл
-file_handler = logging.FileHandler(LOG_FILE)
-file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# Создаем обработчик для вывода в консоль
-console_handler = logging.StreamHandler()
-console_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
-
-# Добавляем обработчики к логгеру
-logger.addHandler(file_handler)
-logger.addHandler(console_handler)
-
-
-# YooKassa Configuration
+# Настройки YooKassa
 Configuration.account_id = config.YOOKASSA_ACCOUNT_ID
 Configuration.secret_key = config.YOOKASSA_SECRET_KEY
 
-# Bot Initialization
+# Инициализация бота и диспетчера
 bot = Bot(token=config.BOT_TOKEN)
-dp = Dispatcher(bot)
+dp = Dispatcher()
+router = Router()
 
-
-# Tariffs Configuration
+# Тарифы
 TARIFFS = {
-    # 'Базовый': {
-    #     'price': 1,
-    #     'chat_id': -1001826989197,
-    #     'channel_id': -1001847911388,
-    # },
-    # 'С добавками': {
-    #     'price': 1,
-    #     'chat_id': -1001869574555,
-    #     'channel_id': -1001852442626,
-    # },
-    # 'Горячий способ': {
-    #     'price': 1,
-    #     'chat_id': -1001797777365,
-    #     'channel_id': -1001775399351,
     "Марафон по мыловарению": {
         "price": 990,
         "chat_id": -1002485301769,
         "channel_id": -1002391181980,
     },
 }
-ids_list = []
+ids_list = [(details["chat_id"], details["channel_id"]) for details in TARIFFS.values()]
 
-for details in TARIFFS.values():
-    chat_id = details.get("chat_id")
-    channel_id = details.get("channel_id")
-    ids_list.append((chat_id, channel_id))
-
-
-
-def ignore_chats(func):
-    @wraps(func)
-    async def wrapper(message: types.Message, *args, **kwargs):
-        if message.chat.id in ids_list:
-            return  # Ignore the message if the chat ID is in the ignore list
-        return await func(message, *args, **kwargs)
-    return wrapper
-
-
-
-# Keyboards Setup
-keyboard_for_client = types.ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-keyboard_for_client.add(*[types.KeyboardButton(title) for title in TARIFFS.keys()])
-
-# YooKassa Payment Handling
+# Функция для создания платежа
 def create_payment(price: int, description: str):
     payment_data = Payment.create({
         "amount": {"value": f"{price}.00", "currency": "RUB"},
@@ -92,7 +53,8 @@ def create_payment(price: int, description: str):
     })
     return json.loads(payment_data.json())
 
-async def monitor_payment(payment_id: str, message: types.Message, tariff: dict):
+# Мониторинг платежа
+async def monitor_payment(payment_id: str, message: Message, tariff: dict):
     retry_interval = 60
     max_retries = 20
     retries = 0
@@ -108,63 +70,94 @@ async def monitor_payment(payment_id: str, message: types.Message, tariff: dict)
         await asyncio.sleep(retry_interval if retries < 1 else 15)
         retries += 1
 
-    await bot.send_message(
-        message.chat.id,
-        'Срок действия ссылки истек или произошла ошибка. Обратитесь к @Aizada_03.'
-    )
+    await message.answer('Срок действия ссылки истек или произошла ошибка. Обратитесь к @Aizada_03.')
 
-async def handle_successful_payment(payment, message, tariff):
+# Обработка успешного платежа
+async def handle_successful_payment(payment, message: Message, tariff):
     logging.info(f"Payment succeeded: {payment['description']}")
 
     course_link = await bot.create_chat_invite_link(tariff['channel_id'], member_limit=1)
     support_link = await bot.create_chat_invite_link(tariff['chat_id'], member_limit=1)
 
-    final_message = f'Добро пожаловать!\n<a href="{course_link.invite_link}">Уроки</a>\n<a href="{support_link.invite_link}">Чат поддержки</a>'
-    await bot.send_message(message.chat.id, 'Спасибо за покупку!😘')
-    await bot.send_message(message.chat.id, f"Канал курса:\n{course_link.invite_link}")
-    await bot.send_message(message.chat.id, f"Чат поддержки:\n{support_link.invite_link}")
+    final_message = (
+        f'Добро пожаловать!\n'
+        f'<a href="{course_link.invite_link}">Уроки</a>\n'
+        f'<a href="{support_link.invite_link}">Чат поддержки</a>'
+    )
 
-# Handlers
-@dp.message_handler(commands=['start'])
+    await message.answer(
+        final_message,
+        parse_mode='HTML',
+    )
+
+# Игнорирование сообщений из определенных чатов
+def ignore_chats(func):
+    @wraps(func)
+    async def wrapper(message: Message):
+        if message.chat.id in ids_list:
+            return  # Пропустить обработку сообщения
+        return await func(message)
+    return wrapper
+
+
+# Обработчик команды /start
+@router.message(Command(commands=["start"]))
 @ignore_chats
-async def handle_start(message: types.Message):
+async def handle_start(message: Message):
     tariff = TARIFFS.get('Марафон по мыловарению')
     username = message.from_user.username
     name = f"{message.from_user.first_name} {message.from_user.last_name}"
-    description = f'Покупка курса по мыловарению "{message.text}", пользователь - @{username}, {name}.'
+    description = f'Покупка курса по мыловарению, пользователь - @{username}, {name}.'
     price = tariff['price']
-    print('asdf')
-    logging.error('before')
+
     payment_data = create_payment(price, description)
-    logging.info('after')
     payment_id = payment_data['id']
     payment_link = payment_data['confirmation']['confirmation_url']
 
-    bot_message = f"Привет, {message.from_user.first_name}.\nБлагодарю за оказанное доверие. Я надеюсь вы получите от марафона максимум пользы и радости." \
-                  f'<a href="{payment_link}">Ваша ссылка для оплаты курса - {price} руб.</a>'
+    bot_message = (
+        f"Привет, {message.from_user.first_name}.\n"
+        f"Благодарю за оказанное доверие. Надеюсь, вы получите максимум пользы и радости от марафона.\n"
+        f'<a href="{payment_link}">Ваша ссылка для оплаты курса - {price} руб.</a>'
+    )
 
-    await bot.send_message(message.chat.id, bot_message, reply_markup=keyboard_for_client, parse_mode=types.ParseMode.HTML)
+    await message.answer(bot_message, parse_mode='HTML', reply_markup=create_keyboard(list(TARIFFS.keys())))
     await monitor_payment(payment_id, message, tariff)
 
-@dp.message_handler()
+# Обработчик текстовых сообщений
+@router.message()
 @ignore_chats
-async def handle_message(message: types.Message):
+async def handle_message(message: Message):
     tariff = TARIFFS.get(message.text)
     if tariff:
         username = message.from_user.username
         name = f"{message.from_user.first_name} {message.from_user.last_name}"
-        description = f'Покупка курса по мыловарению "{message.text}", пользователь - @{username}, {name}.'
+        description = f'Покупка курса по мыловарению, пользователь - @{username}, {name}.'
         price = tariff['price']
+
         payment_data = create_payment(price, description)
         payment_id = payment_data['id']
         payment_link = payment_data['confirmation']['confirmation_url']
 
-        await bot.send_message(message.chat.id, f'<a href="{payment_link}">Ваша ссылка для оплаты курса - {price} руб.</a>', parse_mode=types.ParseMode.HTML)
+        await message.answer(
+            f'<a href="{payment_link}">Ваша ссылка для оплаты курса - {price} руб.</a>',
+            parse_mode='HTML',
+        )
         await monitor_payment(payment_id, message, tariff)
     else:
-        await message.reply('Извините, но я не знаю как ответить на такое сообщение.')
+        await message.reply('Извините, но я не знаю, как ответить на такое сообщение.')
 
-# Entry Point
-if __name__ == '__main__':
+# Создание клавиатуры
+def create_keyboard(buttons: list):
+    builder = ReplyKeyboardBuilder()
+    for button in buttons:
+        builder.add(KeyboardButton(text=button))
+    return builder.as_markup(resize_keyboard=True, one_time_keyboard=True)
+
+# Главная точка входа
+async def main():
+    dp.include_router(router)
     logging.info("Bot started")
-    executor.start_polling(dp, skip_updates=True)
+    await dp.start_polling(bot, skip_updates=True)
+
+if __name__ == "__main__":
+    asyncio.run(main())

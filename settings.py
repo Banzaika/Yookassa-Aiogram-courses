@@ -10,6 +10,8 @@ class Config(BaseSettings):
     BOT_TOKEN: str = "8121070643:AAHfGqB0JoE9Pe8MwTCN5jGppY71ZMrFsvQ"  # your tg bot token from botfather
     DATABASE_URL: str = "postgresql://ctf:ctf@localhost:5432/ctf"
     ADMIN_NICKNAMES: str = "tgadminnick1,tgadminnick2"
+    YOOKASSA_ACCOUNT_ID: str = "some key"
+    YOOKASSA_SECRET_KEY: str = "some key"
 
     class Config:
         env_file = ENV_PATH
